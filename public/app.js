@@ -1,12 +1,10 @@
 let stripe, elements, cardElement;
 let currentUser = null;
-let viewYear, viewMonth; // viewMonth is 1-12
-let selectedDate = null;
-let monthClaims = {};
+let selected = null; // { month, day }
+let myClaims = {}; // key "m-d" -> { amount }
 
-const today = new Date();
-viewYear = today.getFullYear();
-viewMonth = today.getMonth() + 1;
+const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
 async function init() {
   const configRes = await fetch('/api/config');
@@ -22,7 +20,7 @@ async function init() {
   if (currentUser) {
     document.getElementById('authForms').classList.add('hidden');
     document.getElementById('calendarSection').classList.remove('hidden');
-    await loadMonth();
+    await loadCalendar();
     await loadMyClaims();
   } else {
     document.getElementById('authForms').classList.remove('hidden');
@@ -73,84 +71,59 @@ async function authAction(url) {
 
 // --- Calendar ---
 
-document.getElementById('prevBtn').addEventListener('click', () => {
-  viewMonth--;
-  if (viewMonth < 1) { viewMonth = 12; viewYear--; }
-  selectedDate = null;
-  loadMonth();
-});
-
-document.getElementById('nextBtn').addEventListener('click', () => {
-  viewMonth++;
-  if (viewMonth > 12) { viewMonth = 1; viewYear++; }
-  selectedDate = null;
-  loadMonth();
-});
-
-async function loadMonth() {
-  const res = await fetch(`/api/calendar?year=${viewYear}&month=${viewMonth}`);
+async function loadCalendar() {
+  const res = await fetch('/api/calendar');
   const data = await res.json();
 
-  monthClaims = {};
-  data.claims.forEach((c) => { monthClaims[c.date] = c; });
+  myClaims = {};
+  data.claims.forEach((c) => { myClaims[`${c.month}-${c.day}`] = c; });
 
   renderCalendar();
   renderForm();
 }
 
-function dateKey(y, m, d) {
-  return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-}
-
 function renderCalendar() {
-  const label = document.getElementById('monthLabel');
   const grid = document.getElementById('grid');
-
-  label.textContent = new Date(viewYear, viewMonth - 1, 1).toLocaleString(undefined, {
-    month: 'long', year: 'numeric',
-  });
-
   grid.innerHTML = '';
 
-  ['S', 'M', 'T', 'W', 'T', 'F', 'S'].forEach((d) => {
-    const el = document.createElement('div');
-    el.className = 'day-header';
-    el.textContent = d;
-    grid.appendChild(el);
-  });
+  for (let m = 1; m <= 12; m++) {
+    const monthBlock = document.createElement('div');
+    monthBlock.className = 'month-block';
 
-  const firstDay = new Date(viewYear, viewMonth - 1, 1).getDay();
-  const daysInMonth = new Date(viewYear, viewMonth, 0).getDate();
+    const heading = document.createElement('h3');
+    heading.className = 'month-heading';
+    heading.textContent = MONTH_NAMES[m - 1];
+    monthBlock.appendChild(heading);
 
-  for (let i = 0; i < firstDay; i++) {
-    const el = document.createElement('div');
-    el.className = 'cell empty';
-    grid.appendChild(el);
-  }
+    const monthGrid = document.createElement('div');
+    monthGrid.className = 'month-grid';
 
-  for (let d = 1; d <= daysInMonth; d++) {
-    const key = dateKey(viewYear, viewMonth, d);
-    const claim = monthClaims[key];
+    const daysInMonth = DAYS_IN_MONTH[m - 1];
+    for (let d = 1; d <= daysInMonth; d++) {
+      const key = `${m}-${d}`;
+      const claim = myClaims[key];
 
-    const cell = document.createElement('div');
-    cell.className = 'cell';
-    cell.innerHTML = `<span class="day-num">${d}</span><span class="day-amt">$${d}</span>`;
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.innerHTML = `<span class="day-num">${d}</span><span class="day-amt">$${d}</span>`;
 
-    if (claim) {
-      cell.classList.add(claim.isMine ? 'mine' : 'taken');
-      cell.title = claim.isMine
-        ? `Your donation: $${claim.amount}`
-        : 'Already claimed';
-    } else {
-      if (selectedDate === key) cell.classList.add('selected');
-      cell.addEventListener('click', () => {
-        selectedDate = key;
-        renderCalendar();
-        renderForm();
-      });
+      if (claim) {
+        cell.classList.add('mine');
+        cell.title = `Donated $${claim.amount}`;
+      } else {
+        if (selected && selected.month === m && selected.day === d) cell.classList.add('selected');
+        cell.addEventListener('click', () => {
+          selected = { month: m, day: d };
+          renderCalendar();
+          renderForm();
+        });
+      }
+
+      monthGrid.appendChild(cell);
     }
 
-    grid.appendChild(cell);
+    monthBlock.appendChild(monthGrid);
+    grid.appendChild(monthBlock);
   }
 }
 
@@ -159,29 +132,25 @@ function renderCalendar() {
 async function renderForm() {
   const area = document.getElementById('formArea');
 
-  if (!selectedDate) {
-    area.innerHTML = `<p style="color:#888;font-size:14px;">Select a date to donate that amount (e.g. the 15th = $15).</p>`;
+  if (!selected) {
+    area.innerHTML = `<p style="color:#888;font-size:14px;">Select a date on your calendar to donate that amount (e.g. the 15th = $15).</p>`;
     cardElement = null;
     return;
   }
 
-  const day = Number(selectedDate.split('-')[2]);
-  const niceDate = new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
-    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-  });
+  const { month, day } = selected;
 
   area.innerHTML = `
     <div class="card">
-      <strong>${niceDate}</strong>
+      <strong>${MONTH_NAMES[month - 1]} ${day}</strong>
       <p style="margin: 6px 0 12px;">Donation amount: <strong>$${day}</strong></p>
       <label>Card details</label>
       <div id="card-element"></div>
       <p id="claimError" class="error hidden"></p>
-      <button id="claimBtn">Donate $${day} and claim this date</button>
+      <button id="claimBtn">Donate $${day} and fill this date</button>
     </div>
   `;
 
-  // Set up Stripe Elements card field.
   elements = stripe.elements();
   cardElement = elements.create('card');
   cardElement.mount('#card-element');
@@ -199,8 +168,6 @@ async function submitClaim() {
   btn.textContent = 'Processing payment...';
 
   try {
-    // 1. Create a PaymentMethod from the card details (tokenizes the card
-    //    with Stripe; raw card data never touches our server).
     const { paymentMethod, error: pmError } = await stripe.createPaymentMethod({
       type: 'card',
       card: cardElement,
@@ -208,28 +175,23 @@ async function submitClaim() {
 
     if (pmError) throw new Error(pmError.message);
 
-    // 2. Send the date and payment method id to our server, which charges
-    //    the card immediately for an amount equal to the day-of-month.
+    const body = { month: selected.month, day: selected.day, paymentMethodId: paymentMethod.id };
+
     const claimRes = await fetch('/api/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        date: selectedDate,
-        paymentMethodId: paymentMethod.id,
-      }),
+      body: JSON.stringify(body),
     });
     const claimData = await claimRes.json();
 
     if (!claimRes.ok) {
-      // If Stripe requires extra authentication (3D Secure), handle it here.
       if (claimData.requiresAction && claimData.clientSecret) {
         const { error: confirmError } = await stripe.confirmCardPayment(claimData.clientSecret);
         if (confirmError) throw new Error(confirmError.message);
-        // Retry the claim now that the payment is confirmed.
         const retryRes = await fetch('/api/claims', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ date: selectedDate, paymentMethodId: paymentMethod.id }),
+          body: JSON.stringify(body),
         });
         const retryData = await retryRes.json();
         if (!retryRes.ok) throw new Error(retryData.error || 'Failed to complete donation');
@@ -238,8 +200,8 @@ async function submitClaim() {
       }
     }
 
-    selectedDate = null;
-    await loadMonth();
+    selected = null;
+    await loadCalendar();
     await loadMyClaims();
   } catch (err) {
     errEl.textContent = err.message;
@@ -256,14 +218,17 @@ async function loadMyClaims() {
   const data = await res.json();
   const el = document.getElementById('myClaims');
 
+  const totalEl = document.getElementById('myTotal');
+  if (totalEl) totalEl.textContent = `$${data.total}`;
+
   if (data.claims.length === 0) {
-    el.innerHTML = '<p style="color:#888;font-size:14px;">No pledges yet.</p>';
+    el.innerHTML = '<p style="color:#888;font-size:14px;">No donations yet.</p>';
     return;
   }
 
   el.innerHTML = data.claims.map((c) => `
     <div class="claim-row">
-      <span>${c.date} &mdash; $${c.amount}</span>
+      <span>${MONTH_NAMES[c.month - 1]} ${c.day} &mdash; $${c.amount}</span>
       <span class="status-badge status-CHARGED">Donated</span>
     </div>
   `).join('');

@@ -16,13 +16,14 @@ model User {
   claims             DateClaim[]
 }
 
-// Each specific calendar date (e.g. March 1, 2026) can be claimed by at
-// most ONE user system-wide. The @unique on `date` enforces global
-// uniqueness across all users. Amount is always equal to the day-of-month
-// in dollars (e.g. the 1st = $1, the 31st = $31), charged immediately.
+// Each user has their own personal calendar of (month, day) cells.
+// A cell is uniquely identified per user by month (1-12) and day (1-31).
+// Once charged, it's permanently locked for that user. Amount = day number
+// in dollars (e.g. day 15 = $15).
 model DateClaim {
   id                String   @id @default(uuid())
-  date              DateTime @unique @db.Date
+  month             Int      // 1-12
+  day               Int      // 1-31
   amountCents       Int
   status            ClaimStatus @default(CHARGED)
   failureReason     String?
@@ -32,10 +33,11 @@ model DateClaim {
   userId            String
   user              User     @relation(fields: [userId], references: [id])
 
+  @@unique([userId, month, day])
   @@index([userId])
 }
 
 enum ClaimStatus {
-  CHARGED  // payment succeeded, date is locked
-  FAILED   // payment failed; date stays open (kept briefly for the user's own history)
+  CHARGED  // payment succeeded, cell is locked
+  FAILED   // payment failed; cell stays open (kept briefly for the user's own history)
 }
