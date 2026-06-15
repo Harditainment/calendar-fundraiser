@@ -13,14 +13,14 @@ model User {
   passwordHash       String
   stripeCustomerId   String?
   createdAt          DateTime @default(now())
-  claims             DateClaim[]
+  claims             dateClaim[]
 }
 
 // Each user has their own personal calendar of (month, day) cells.
 // A cell is uniquely identified per user by month (1-12) and day (1-31).
 // Once charged, it's permanently locked for that user. Amount = day number
 // in dollars (e.g. day 15 = $15).
-model DateClaim {
+model dateClaim {
   id                String   @id @default(uuid())
   month             Int      // 1-12
   day               Int      // 1-31
