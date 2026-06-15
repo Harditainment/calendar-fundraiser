@@ -7,8 +7,7 @@
     "start": "node server.js",
     "dev": "nodemon server.js",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:generate": "prisma generate",
-    "cron": "node jobs/chargeDueDates.js"
+    "prisma:generate": "prisma generate"
   },
   "dependencies": {
     "@prisma/client": "^5.18.0",
@@ -16,7 +15,6 @@
     "cookie-session": "^2.1.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "node-cron": "^4.2.1",
     "stripe": "^16.8.0"
   },
   "devDependencies": {

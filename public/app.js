@@ -128,26 +128,19 @@ function renderCalendar() {
     grid.appendChild(el);
   }
 
-  const todayMid = new Date();
-  todayMid.setHours(0, 0, 0, 0);
-
   for (let d = 1; d <= daysInMonth; d++) {
     const key = dateKey(viewYear, viewMonth, d);
-    const cellDate = new Date(viewYear, viewMonth - 1, d);
-    const isPast = cellDate < todayMid;
     const claim = monthClaims[key];
 
     const cell = document.createElement('div');
     cell.className = 'cell';
-    cell.textContent = d;
+    cell.innerHTML = `<span class="day-num">${d}</span><span class="day-amt">$${d}</span>`;
 
     if (claim) {
       cell.classList.add(claim.isMine ? 'mine' : 'taken');
       cell.title = claim.isMine
-        ? `Your pledge: $${claim.amount} (${claim.status})`
+        ? `Your donation: $${claim.amount}`
         : 'Already claimed';
-    } else if (isPast) {
-      cell.classList.add('past');
     } else {
       if (selectedDate === key) cell.classList.add('selected');
       cell.addEventListener('click', () => {
@@ -167,11 +160,12 @@ async function renderForm() {
   const area = document.getElementById('formArea');
 
   if (!selectedDate) {
-    area.innerHTML = `<p style="color:#888;font-size:14px;">Select an open date to pledge an amount.</p>`;
+    area.innerHTML = `<p style="color:#888;font-size:14px;">Select a date to donate that amount (e.g. the 15th = $15).</p>`;
     cardElement = null;
     return;
   }
 
+  const day = Number(selectedDate.split('-')[2]);
   const niceDate = new Date(selectedDate + 'T00:00:00').toLocaleDateString(undefined, {
     weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
   });
@@ -179,12 +173,11 @@ async function renderForm() {
   area.innerHTML = `
     <div class="card">
       <strong>${niceDate}</strong>
-      <label>Pledge amount (USD)</label>
-      <input type="number" id="amountInput" min="1" step="1" placeholder="25" />
+      <p style="margin: 6px 0 12px;">Donation amount: <strong>$${day}</strong></p>
       <label>Card details</label>
       <div id="card-element"></div>
       <p id="claimError" class="error hidden"></p>
-      <button id="claimBtn">Reserve this date</button>
+      <button id="claimBtn">Donate $${day} and claim this date</button>
     </div>
   `;
 
@@ -197,47 +190,53 @@ async function renderForm() {
 }
 
 async function submitClaim() {
-  const amountInput = document.getElementById('amountInput');
   const errEl = document.getElementById('claimError');
   const btn = document.getElementById('claimBtn');
+  const originalLabel = btn.textContent;
   errEl.classList.add('hidden');
 
-  const amount = Number(amountInput.value);
-  if (!amount || amount <= 0) {
-    errEl.textContent = 'Enter a valid pledge amount.';
-    errEl.classList.remove('hidden');
-    return;
-  }
-
   btn.disabled = true;
-  btn.textContent = 'Processing...';
+  btn.textContent = 'Processing payment...';
 
   try {
-    // 1. Get a SetupIntent client secret from the server.
-    const setupRes = await fetch('/api/setup-intent', { method: 'POST' });
-    const setupData = await setupRes.json();
-    if (!setupRes.ok) throw new Error(setupData.error || 'Failed to start payment setup');
-
-    // 2. Confirm the SetupIntent with the card details (this securely
-    //    tokenizes the card with Stripe; raw card data never touches our server).
-    const { setupIntent, error: confirmError } = await stripe.confirmCardSetup(setupData.clientSecret, {
-      payment_method: { card: cardElement },
+    // 1. Create a PaymentMethod from the card details (tokenizes the card
+    //    with Stripe; raw card data never touches our server).
+    const { paymentMethod, error: pmError } = await stripe.createPaymentMethod({
+      type: 'card',
+      card: cardElement,
     });
 
-    if (confirmError) throw new Error(confirmError.message);
+    if (pmError) throw new Error(pmError.message);
 
-    // 3. Send the date, amount, and the resulting payment method id to our server.
+    // 2. Send the date and payment method id to our server, which charges
+    //    the card immediately for an amount equal to the day-of-month.
     const claimRes = await fetch('/api/claims', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         date: selectedDate,
-        amount,
-        paymentMethodId: setupIntent.payment_method,
+        paymentMethodId: paymentMethod.id,
       }),
     });
     const claimData = await claimRes.json();
-    if (!claimRes.ok) throw new Error(claimData.error || 'Failed to reserve date');
+
+    if (!claimRes.ok) {
+      // If Stripe requires extra authentication (3D Secure), handle it here.
+      if (claimData.requiresAction && claimData.clientSecret) {
+        const { error: confirmError } = await stripe.confirmCardPayment(claimData.clientSecret);
+        if (confirmError) throw new Error(confirmError.message);
+        // Retry the claim now that the payment is confirmed.
+        const retryRes = await fetch('/api/claims', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date: selectedDate, paymentMethodId: paymentMethod.id }),
+        });
+        const retryData = await retryRes.json();
+        if (!retryRes.ok) throw new Error(retryData.error || 'Failed to complete donation');
+      } else {
+        throw new Error(claimData.error || 'Failed to complete donation');
+      }
+    }
 
     selectedDate = null;
     await loadMonth();
@@ -246,7 +245,7 @@ async function submitClaim() {
     errEl.textContent = err.message;
     errEl.classList.remove('hidden');
     btn.disabled = false;
-    btn.textContent = 'Reserve this date';
+    btn.textContent = originalLabel;
   }
 }
 
@@ -265,7 +264,7 @@ async function loadMyClaims() {
   el.innerHTML = data.claims.map((c) => `
     <div class="claim-row">
       <span>${c.date} &mdash; $${c.amount}</span>
-      <span class="status-badge status-${c.status}">${c.status}</span>
+      <span class="status-badge status-CHARGED">Donated</span>
     </div>
   `).join('');
 }

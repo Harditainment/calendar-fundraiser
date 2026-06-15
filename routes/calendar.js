@@ -5,25 +5,27 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Helper: normalize a YYYY-MM-DD string to a UTC midnight Date, and
-// validate it's a real, non-past date.
+// Helper: normalize a YYYY-MM-DD string to a UTC midnight Date, validating
+// it's a real calendar date.
 function parseDateOnly(dateStr) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return null;
   const d = new Date(dateStr + 'T00:00:00.000Z');
   if (isNaN(d.getTime())) return null;
+  const [y, m, day] = dateStr.split('-').map(Number);
+  if (d.getUTCFullYear() !== y || d.getUTCMonth() + 1 !== m || d.getUTCDate() !== day) return null;
   return d;
 }
 
-function isPastDate(d) {
-  const today = new Date();
-  const todayUTC = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
-  return d < todayUTC;
+// The donation amount is fixed by the day-of-month: the 1st = $1,
+// the 31st = $31, etc.
+function amountForDate(d) {
+  return d.getUTCDate();
 }
 
 // GET /api/calendar?year=2026&month=6
-// Returns claim status for every date in the given month, for ALL users
-// (so the UI can grey out dates claimed by anyone), plus whether the
-// CURRENT user owns each claimed date.
+// Returns every date in the given month already locked by a successful
+// charge (for ALL users), plus whether the CURRENT user owns it. Every
+// other date — past, present, or future — is selectable.
 router.get('/calendar', async (req, res) => {
   try {
     const year = parseInt(req.query.year, 10);
@@ -34,16 +36,11 @@ router.get('/calendar', async (req, res) => {
     }
 
     const start = new Date(Date.UTC(year, month - 1, 1));
-    const end = new Date(Date.UTC(year, month, 1)); // first day of next month
+    const end = new Date(Date.UTC(year, month, 1));
 
     const claims = await prisma.dateClaim.findMany({
-      where: { date: { gte: start, lt: end } },
-      select: {
-        date: true,
-        amountCents: true,
-        status: true,
-        userId: true,
-      },
+      where: { date: { gte: start, lt: end }, status: 'CHARGED' },
+      select: { date: true, amountCents: true, userId: true },
     });
 
     const currentUserId = req.session && req.session.userId;
@@ -51,7 +48,6 @@ router.get('/calendar', async (req, res) => {
     const result = claims.map((c) => ({
       date: c.date.toISOString().slice(0, 10),
       amount: c.amountCents / 100,
-      status: c.status,
       isMine: currentUserId ? c.userId === currentUserId : false,
     }));
 
@@ -62,93 +58,106 @@ router.get('/calendar', async (req, res) => {
   }
 });
 
-// POST /api/setup-intent
-// Creates a Stripe SetupIntent so the client can securely collect and save
-// a card via Stripe Elements WITHOUT charging it yet.
-router.post('/setup-intent', requireAuth, async (req, res) => {
-  try {
-    const user = await prisma.user.findUnique({ where: { id: req.session.userId } });
-
-    const setupIntent = await stripe.setupIntents.create({
-      customer: user.stripeCustomerId,
-      payment_method_types: ['card'],
-      usage: 'off_session', // we'll charge this later without the user present
-    });
-
-    res.json({ clientSecret: setupIntent.client_secret });
-  } catch (err) {
-    console.error('SetupIntent error:', err);
-    res.status(500).json({ error: 'Failed to start payment setup' });
-  }
-});
-
 // POST /api/claims
-// Body: { date: "YYYY-MM-DD", amount: number (dollars), paymentMethodId: string }
-// Claims a date for the current user. Fails if the date is already taken
-// by ANYONE (enforced by DB unique constraint + pre-check).
+// Body: { date: "YYYY-MM-DD", paymentMethodId: string }
+// Charges the user immediately for an amount equal to the day-of-month
+// (in dollars), then claims the date for the current user. Fails if the
+// date is already claimed by ANYONE (DB unique constraint enforces this).
 router.post('/claims', requireAuth, async (req, res) => {
   try {
-    const { date, amount, paymentMethodId } = req.body;
+    const { date, paymentMethodId } = req.body;
 
-    if (!date || !amount || !paymentMethodId) {
-      return res.status(400).json({ error: 'date, amount, and paymentMethodId are required' });
+    if (!date || !paymentMethodId) {
+      return res.status(400).json({ error: 'date and paymentMethodId are required' });
     }
 
     const parsedDate = parseDateOnly(date);
     if (!parsedDate) {
-      return res.status(400).json({ error: 'date must be in YYYY-MM-DD format' });
-    }
-    if (isPastDate(parsedDate)) {
-      return res.status(400).json({ error: 'Cannot claim a date in the past' });
+      return res.status(400).json({ error: 'date must be a valid YYYY-MM-DD date' });
     }
 
-    const amountCents = Math.round(Number(amount) * 100);
-    if (!Number.isFinite(amountCents) || amountCents <= 0) {
-      return res.status(400).json({ error: 'amount must be a positive number' });
+    const existing = await prisma.dateClaim.findFirst({
+      where: { date: parsedDate, status: 'CHARGED' },
+    });
+    if (existing) {
+      return res.status(409).json({ error: 'That date has already been claimed by someone else' });
     }
+
+    const amountCents = amountForDate(parsedDate) * 100;
 
     const user = await prisma.user.findUnique({ where: { id: req.session.userId } });
 
-    // Attach the payment method to the customer for future off-session use.
     await stripe.paymentMethods.attach(paymentMethodId, { customer: user.stripeCustomerId });
-    await stripe.customers.update(user.stripeCustomerId, {
-      invoice_settings: { default_payment_method: paymentMethodId },
-    });
 
-    // The unique constraint on DateClaim.date guarantees that if two users
-    // race for the same date, only one insert succeeds.
-    const claim = await prisma.dateClaim.create({
-      data: {
-        date: parsedDate,
-        amountCents,
-        status: 'PENDING',
-        stripePaymentMethodId: paymentMethodId,
-        userId: user.id,
-      },
-    });
-
-    res.json({
-      id: claim.id,
-      date: claim.date.toISOString().slice(0, 10),
-      amount: claim.amountCents / 100,
-      status: claim.status,
-    });
-  } catch (err) {
-    // Prisma unique constraint violation code
-    if (err.code === 'P2002') {
-      return res.status(409).json({ error: 'That date has already been claimed by someone else' });
+    let paymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.create({
+        amount: amountCents,
+        currency: 'usd',
+        customer: user.stripeCustomerId,
+        payment_method: paymentMethodId,
+        confirm: true,
+        off_session: false,
+	automatic_payment_methods: { enabled: true, allow_redirects: 'never' },
+        description: `Calendar fundraiser donation for ${date} ($${amountCents / 100})`,
+      });
+    } catch (stripeErr) {
+      // Card declined or otherwise failed - date stays open.
+      return res.status(402).json({ error: stripeErr.message || 'Payment failed' });
     }
+
+    if (paymentIntent.status === 'requires_action') {
+      // 3D Secure or similar additional authentication is required.
+      // The client must confirm this client_secret, then retry the claim.
+      return res.status(402).json({
+        error: 'Additional authentication required',
+        requiresAction: true,
+        clientSecret: paymentIntent.client_secret,
+      });
+    }
+
+    if (paymentIntent.status !== 'succeeded') {
+      return res.status(402).json({ error: `Payment was not completed (status: ${paymentIntent.status})` });
+    }
+
+    try {
+      const claim = await prisma.dateClaim.create({
+        data: {
+          date: parsedDate,
+          amountCents,
+          status: 'CHARGED',
+          userId: user.id,
+        },
+      });
+
+      res.json({
+        id: claim.id,
+        date: claim.date.toISOString().slice(0, 10),
+        amount: claim.amountCents / 100,
+        status: claim.status,
+      });
+    } catch (dbErr) {
+      // Payment succeeded but someone else claimed this exact date in the
+      // brief window between our check and now (DB unique constraint hit).
+      // Refund the charge since the date can't be granted.
+      if (dbErr.code === 'P2002') {
+        await stripe.refunds.create({ payment_intent: paymentIntent.id });
+        return res.status(409).json({ error: 'That date was just claimed by someone else. Your card was not charged (refunded).' });
+      }
+      throw dbErr;
+    }
+  } catch (err) {
     console.error('Claim error:', err);
-    res.status(500).json({ error: 'Failed to reserve date' });
+    res.status(500).json({ error: 'Failed to process your donation' });
   }
 });
 
 // GET /api/my-claims
-// Returns the current user's claims, including past charge history.
+// Returns the current user's successful donations.
 router.get('/my-claims', requireAuth, async (req, res) => {
   try {
     const claims = await prisma.dateClaim.findMany({
-      where: { userId: req.session.userId },
+      where: { userId: req.session.userId, status: 'CHARGED' },
       orderBy: { date: 'asc' },
     });
 
@@ -159,33 +168,11 @@ router.get('/my-claims', requireAuth, async (req, res) => {
         amount: c.amountCents / 100,
         status: c.status,
         chargedAt: c.chargedAt,
-        failureReason: c.failureReason,
       })),
     });
   } catch (err) {
     console.error('My claims error:', err);
-    res.status(500).json({ error: 'Failed to load your claims' });
-  }
-});
-
-// DELETE /api/claims/:id
-// Allows a user to cancel their own PENDING claim (frees the date back up).
-router.delete('/claims/:id', requireAuth, async (req, res) => {
-  try {
-    const claim = await prisma.dateClaim.findUnique({ where: { id: req.params.id } });
-
-    if (!claim || claim.userId !== req.session.userId) {
-      return res.status(404).json({ error: 'Claim not found' });
-    }
-    if (claim.status !== 'PENDING') {
-      return res.status(400).json({ error: 'Only pending (uncharged) claims can be cancelled' });
-    }
-
-    await prisma.dateClaim.delete({ where: { id: claim.id } });
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('Cancel claim error:', err);
-    res.status(500).json({ error: 'Failed to cancel claim' });
+    res.status(500).json({ error: 'Failed to load your donations' });
   }
 });
 

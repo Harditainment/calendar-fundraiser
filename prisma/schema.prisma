@@ -16,27 +16,26 @@ model User {
   claims             DateClaim[]
 }
 
-// Each calendar date can be claimed by at most ONE user system-wide.
-// The @unique on `date` enforces global uniqueness across all users.
+// Each specific calendar date (e.g. March 1, 2026) can be claimed by at
+// most ONE user system-wide. The @unique on `date` enforces global
+// uniqueness across all users. Amount is always equal to the day-of-month
+// in dollars (e.g. the 1st = $1, the 31st = $31), charged immediately.
 model DateClaim {
   id                String   @id @default(uuid())
   date              DateTime @unique @db.Date
   amountCents       Int
-  status            ClaimStatus @default(PENDING)
-  stripePaymentMethodId String?
+  status            ClaimStatus @default(CHARGED)
   failureReason     String?
-  chargedAt         DateTime?
+  chargedAt         DateTime @default(now())
   createdAt         DateTime @default(now())
 
   userId            String
   user              User     @relation(fields: [userId], references: [id])
 
   @@index([userId])
-  @@index([status, date])
 }
 
 enum ClaimStatus {
-  PENDING    // date reserved, payment method saved, not yet charged
-  CHARGED    // successfully charged on the date
-  FAILED     // charge attempt failed
+  CHARGED  // payment succeeded, date is locked
+  FAILED   // payment failed; date stays open (kept briefly for the user's own history)
 }

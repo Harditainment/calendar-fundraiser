@@ -60,21 +60,25 @@ button:disabled { cursor: not-allowed; opacity: 0.5; }
 
 .cell {
   aspect-ratio: 1;
-  display: flex; align-items: center; justify-content: center;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   border-radius: 8px;
   border: 1px solid #e0e0dc;
   font-size: 13px;
   background: #fff;
   cursor: pointer;
+  line-height: 1.2;
 }
 .cell.empty { border: none; background: transparent; cursor: default; }
-.cell.past { opacity: 0.4; cursor: not-allowed; }
+.day-num { font-weight: 500; }
+.day-amt { font-size: 10px; color: #999; }
 .cell.taken {
   background: #f1efe8; color: #888; cursor: not-allowed;
 }
+.cell.taken .day-amt { color: #aaa; }
 .cell.mine {
   background: #e1f5ee; color: #085041; border-color: #5dcaa5; cursor: default;
 }
+.cell.mine .day-amt { color: #3f9c81; }
 .cell.selected {
   background: #e6f1fb; border: 2px solid #378add; color: #0c447c;
 }
