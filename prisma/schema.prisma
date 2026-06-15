@@ -1,0 +1,42 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String   @id @default(uuid())
+  email              String   @unique
+  passwordHash       String
+  stripeCustomerId   String?
+  createdAt          DateTime @default(now())
+  claims             DateClaim[]
+}
+
+// Each calendar date can be claimed by at most ONE user system-wide.
+// The @unique on `date` enforces global uniqueness across all users.
+model DateClaim {
+  id                String   @id @default(uuid())
+  date              DateTime @unique @db.Date
+  amountCents       Int
+  status            ClaimStatus @default(PENDING)
+  stripePaymentMethodId String?
+  failureReason     String?
+  chargedAt         DateTime?
+  createdAt         DateTime @default(now())
+
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([status, date])
+}
+
+enum ClaimStatus {
+  PENDING    // date reserved, payment method saved, not yet charged
+  CHARGED    // successfully charged on the date
+  FAILED     // charge attempt failed
+}

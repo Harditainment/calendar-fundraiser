@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Calendar Fundraiser</title>
+  <script src="https://js.stripe.com/v3/"></script>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Calendar Fundraiser</h1>
+      <div id="authBar"></div>
+    </header>
+
+    <div id="authForms" class="card hidden">
+      <h2>Sign up / Log in</h2>
+      <input type="email" id="emailInput" placeholder="Email" />
+      <input type="password" id="passwordInput" placeholder="Password" />
+      <div class="row">
+        <button id="signupBtn">Sign up</button>
+        <button id="loginBtn">Log in</button>
+      </div>
+      <p id="authError" class="error hidden"></p>
+    </div>
+
+    <div id="calendarSection" class="hidden">
+      <div class="month-nav">
+        <button id="prevBtn">&larr;</button>
+        <span id="monthLabel"></span>
+        <button id="nextBtn">&rarr;</button>
+      </div>
+
+      <div id="grid" class="grid"></div>
+
+      <div id="formArea"></div>
+
+      <h2>My pledges</h2>
+      <div id="myClaims"></div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
