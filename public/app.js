@@ -5,6 +5,7 @@ let myClaims = {}; // key "m-d" -> { amount }
 
 const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const JUNE = 6;
 
 async function init() {
   const configRes = await fetch('/api/config');
@@ -82,48 +83,51 @@ async function loadCalendar() {
   renderForm();
 }
 
+const WEEKDAY_LABELS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+
 function renderCalendar() {
   const grid = document.getElementById('grid');
   grid.innerHTML = '';
 
-  for (let m = 1; m <= 12; m++) {
-    const monthBlock = document.createElement('div');
-    monthBlock.className = 'month-block';
+  WEEKDAY_LABELS.forEach((label) => {
+    const head = document.createElement('div');
+    head.className = 'weekday-label';
+    head.textContent = label;
+    grid.appendChild(head);
+  });
 
-    const heading = document.createElement('h3');
-    heading.className = 'month-heading';
-    heading.textContent = MONTH_NAMES[m - 1];
-    monthBlock.appendChild(heading);
+  const m = JUNE;
+  const daysInMonth = DAYS_IN_MONTH[m - 1];
+  const year = new Date().getFullYear();
+  const firstWeekday = new Date(year, m - 1, 1).getDay(); // 0 = Sunday
 
-    const monthGrid = document.createElement('div');
-    monthGrid.className = 'month-grid';
+  for (let i = 0; i < firstWeekday; i++) {
+    const blank = document.createElement('div');
+    blank.className = 'cell empty';
+    grid.appendChild(blank);
+  }
 
-    const daysInMonth = DAYS_IN_MONTH[m - 1];
-    for (let d = 1; d <= daysInMonth; d++) {
-      const key = `${m}-${d}`;
-      const claim = myClaims[key];
+  for (let d = 1; d <= daysInMonth; d++) {
+    const key = `${m}-${d}`;
+    const claim = myClaims[key];
 
-      const cell = document.createElement('div');
-      cell.className = 'cell';
-      cell.innerHTML = `<span class="day-num">${d}</span><span class="day-amt">$${d}</span>`;
+    const cell = document.createElement('div');
+    cell.className = 'cell';
+    cell.innerHTML = `<span class="day-num">${d}</span><span class="day-amt">$${d}</span>`;
 
-      if (claim) {
-        cell.classList.add('mine');
-        cell.title = `Donated $${claim.amount}`;
-      } else {
-        if (selected && selected.month === m && selected.day === d) cell.classList.add('selected');
-        cell.addEventListener('click', () => {
-          selected = { month: m, day: d };
-          renderCalendar();
-          renderForm();
-        });
-      }
-
-      monthGrid.appendChild(cell);
+    if (claim) {
+      cell.classList.add('mine');
+      cell.title = `Donated $${claim.amount}`;
+    } else {
+      if (selected && selected.month === m && selected.day === d) cell.classList.add('selected');
+      cell.addEventListener('click', () => {
+        selected = { month: m, day: d };
+        renderCalendar();
+        renderForm();
+      });
     }
 
-    monthBlock.appendChild(monthGrid);
-    grid.appendChild(monthBlock);
+    grid.appendChild(cell);
   }
 }
 
@@ -138,11 +142,11 @@ async function renderForm() {
     return;
   }
 
-  const { month, day } = selected;
+  const { day } = selected;
 
   area.innerHTML = `
     <div class="card">
-      <strong>${MONTH_NAMES[month - 1]} ${day}</strong>
+      <strong>June ${day}</strong>
       <p style="margin: 6px 0 12px;">Donation amount: <strong>$${day}</strong></p>
       <label>Card details</label>
       <div id="card-element"></div>
@@ -228,7 +232,7 @@ async function loadMyClaims() {
 
   el.innerHTML = data.claims.map((c) => `
     <div class="claim-row">
-      <span>${MONTH_NAMES[c.month - 1]} ${c.day} &mdash; $${c.amount}</span>
+      <span>June ${c.day} &mdash; $${c.amount}</span>
       <span class="status-badge status-CHARGED">Donated</span>
     </div>
   `).join('');

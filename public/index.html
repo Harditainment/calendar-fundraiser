@@ -3,14 +3,17 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Calendar Fundraiser</title>
+  <title>Pick-a-Day Fundraiser</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://js.stripe.com/v3/"></script>
   <link rel="stylesheet" href="/styles.css" />
 </head>
 <body>
   <div class="container">
     <header>
-      <h1>Calendar Fundraiser</h1>
+      <h1>Pick-a-Day Fundraiser</h1>
       <div id="authBar"></div>
     </header>
 
@@ -26,11 +29,24 @@
     </div>
 
     <div id="calendarSection" class="hidden">
-      <div class="card" style="text-align:center;">
-        <p style="margin:0;font-size:13px;color:#888;">Total donated</p>
-        <p id="myTotal" style="margin:4px 0 0;font-size:24px;font-weight:500;">$0</p>
+      <div class="hero">
+        <img src="/images/hero.jpg" alt="Our team" class="hero-img" />
+        <div class="hero-text">
+          <h2 class="hero-title">Pick a day. Make a difference.</h2>
+          <p>Choose any day in June and donate the amount that matches the date — pick the 5th and give $5, pick the 25th and give $25. Every day chosen brings us closer to our goal.</p>
+          <p>This initiative is rooted in compassion, service, and the belief that together we can create hope and opportunity for our community. Every contribution makes a difference.</p>
+          <p class="hero-thanks">Thank you for your kindness and support. 🤍</p>
+        </div>
       </div>
 
+      <div class="card total-card">
+        <div>
+          <p class="total-label">Total donated</p>
+          <p class="total-amount" id="myTotal">$0</p>
+        </div>
+      </div>
+
+      <h2 class="month-label">June</h2>
       <div id="grid" class="grid"></div>
 
       <div id="formArea"></div>

@@ -5,13 +5,13 @@ const { requireAuth } = require('../middleware/auth');
 
 const router = express.Router();
 
-// Days in each month (Jan-Dec), not tied to any specific year.
-// February is fixed at 28 to avoid leap-year ambiguity for a perpetual calendar.
-const DAYS_IN_MONTH = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+// This fundraiser currently runs for June only.
+const FUNDRAISER_MONTH = 6;
+const DAYS_IN_FUNDRAISER_MONTH = 30;
 
 function isValidMonthDay(month, day) {
-  if (!Number.isInteger(month) || month < 1 || month > 12) return false;
-  if (!Number.isInteger(day) || day < 1 || day > DAYS_IN_MONTH[month - 1]) return false;
+  if (month !== FUNDRAISER_MONTH) return false;
+  if (!Number.isInteger(day) || day < 1 || day > DAYS_IN_FUNDRAISER_MONTH) return false;
   return true;
 }
 
